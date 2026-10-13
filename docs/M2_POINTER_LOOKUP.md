@@ -64,3 +64,20 @@ git pull --ff-only
 Windows 原生以上项目均待实测；本轮 agent 的 PowerShell 互操作报 `WSL ERROR: UtilBindVsockAnyPort:317: socket failed 1`。WSL 测试中的原生结果由替身提供，不能据此声称 Windows OCR/UIA 通过。HTTP 套接字检查仍受环境限制，详见 VALIDATION.md。
 
 此入口原生验收通过后，再实现用户框选区域 → OCR → 修正全文 → 翻译，随后做系统托盘与退出行为。本次局部指针 OCR 不代表已经实现区域截图工具。
+
+## Windows 用户反馈与 OCR 修复（2026-10-13）
+
+用户反馈 Notion、Chrome、终端可以取词，微信和 WPS 报“本机截图/OCR 未成功”。这是部分应用的实际使用反馈；尚未确认各成功应用走 UIA 还是 OCR，也未确认失败应用的文档类型、语言和 DPI。
+
+检查发现 OCR 词框转换 `@($left+$r.X, $top+$r.Y, ...)` 未按坐标分组；PowerShell 逗号优先于加法，会把数组参与运算。已抽出 `GetScreenBox`，对每项加法分别加括号，修复明确的代码缺陷。这可能解释上述失败，但不能据此宣称微信/WPS 已通过复测。依据：[Microsoft 运算优先级](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_operator_precedence)。
+
+错误现区分组件/语言初始化、截图、解码、识别、词框定位；无文字与鼠标未命中分别提示。只输出固定阶段标签，不暴露原始异常、截图、识别内容或服务凭据。仍以 OCR 实际结果为准，不把泛化错误认定为缺权限/语言包。
+
+更新并重启后先复测微信、WPS。若仍失败，提供完整阶段提示，或运行：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\check_pointer_worker.ps1
+.\.venv-win\Scripts\python.exe scripts\check_pointer.py --ocr-only
+```
+
+第一条从生产脚本 AST 提取坐标转换及命中函数，实际执行正负坐标/小数/命中和未命中回归，不读取屏幕；第二条实际测试本机截图 OCR，需在倒计时内将指针放到待测普通文字。Windows 脚本测试尚未在 agent 执行成功，互操作仍受 socket 限制。

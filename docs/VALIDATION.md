@@ -2,6 +2,14 @@
 
 > 当前状态：用户已确认 Windows 主题与唤起/隐藏快捷键通过；随后反馈选区读取兼容性不足。M2.2 现改为鼠标指向后按快捷键，UIA 指针读取 → 本机 OCR 回退 → 浮窗释义/收藏。Windows 新增原生能力待验收，macOS 尚未实现。详见 [当前实现、边界和验收](M2_POINTER_LOOKUP.md)。下文此前阶段记录中的“待验收/下一步”保留历史含义，以本条和最新验证记录为准。
 
+## 最新：OCR 词框修复
+
+用户已反馈 Notion/Chrome/终端可用，微信/WPS 返回泛化 OCR 错误。已修正 PowerShell 坐标数组内加法的优先级错误，新增安全的阶段标签及无文字/未命中区分；尚无修复后原生复测结论。
+
+`validation/pointer-ocr-fix/`：64 项核心通过，真实 HTTP 类在 setUpClass 环境跳过；17 项界面中 16 通过、1 项 socket 联合检查跳过；启动通过。验证器返回 2（环境受限）。新增错误协议测试确认只显示固定阶段标签，不回显未知字段。`git diff --check` 通过。
+
+新增 `scripts/check_pointer_worker.ps1` 从生产脚本提取函数，检查语法、坐标转换及命中；实际启动 Windows PowerShell 仍报 `UtilBindVsockAnyPort:317: socket failed 1`，退出 1，因此原生回归未运行，不能以 Python 测试代替。复测步骤见 M2_POINTER_LOOKUP.md。
+
 ## 最新：指针取词与浮窗修正
 
 用户选择“鼠标指向后按快捷键取词”。默认 Ctrl+Alt+T 已改为该模式；旧选区模式可选。Windows UIA 指针接口、本机局部 OCR 与浮窗实现见 [M2_POINTER_LOOKUP.md](M2_POINTER_LOOKUP.md)。

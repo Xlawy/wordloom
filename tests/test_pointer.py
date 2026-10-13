@@ -34,6 +34,18 @@ class Helper:
 
 
 class PointerTests(unittest.TestCase):
+    def test_safe_stage_errors_and_ocr_empty_distinctions(self):
+        for code in ('ocr_error', 'ocr_missing', 'ocr_no_text', 'ocr_no_hit'):
+            with self.assertRaises(ApiError) as raised:
+                parse_pointer(json.dumps(dict(code=code, stage='hitbox')), TARGET)
+            self.assertEqual(raised.exception.code, 'pointer_' + code)
+            self.assertIn('hitbox', str(raised.exception))
+        for stage in ('private screen content', ['capture'], None):
+            with self.assertRaises(ApiError) as raised:
+                parse_pointer(json.dumps(dict(code='ocr_error', stage=stage)), TARGET)
+            self.assertNotIn('阶段', str(raised.exception))
+            self.assertNotIn('private screen content', str(raised.exception))
+
     def test_word_context_and_physical_negative_coordinates(self):
         found = parse_pointer(result(), TARGET)
         self.assertEqual(found.word, 'serendipity')

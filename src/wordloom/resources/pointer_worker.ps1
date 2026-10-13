@@ -6,6 +6,7 @@ $ProgressPreference = 'SilentlyContinue'
 $nativeReady = $false
 $uiaReady = $false
 $ocrReady = $false
+$ocrInitStage = 'init'
 try {
     Add-Type -TypeDefinition @'
 using System;
@@ -43,10 +44,12 @@ if ($Mode -eq 'uia') {
         [void][Windows.Graphics.Imaging.SoftwareBitmap, Windows.Foundation, ContentType=WindowsRuntime]
         [void][Windows.Storage.Streams.InMemoryRandomAccessStream, Windows.Foundation, ContentType=WindowsRuntime]
         [void][Windows.Storage.Streams.DataWriter, Windows.Foundation, ContentType=WindowsRuntime]
+        $ocrInitStage = 'bridge'
         $asTask = [System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
             $_.Name -eq 'AsTask' -and $_.IsGenericMethod -and $_.GetGenericArguments().Length -eq 1 -and
             $_.GetParameters().Length -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1'
         } | Select-Object -First 1
+        $ocrInitStage = 'language'
         $language = [Windows.Globalization.Language]::new('en-US')
         $engine = $null
         if ([Windows.Media.Ocr.OcrEngine]::IsLanguageSupported($language)) {
@@ -62,6 +65,10 @@ function AwaitResult($operation, [Type]$type) {
 }
 function PointInside($box, $x, $y) {
     return ($x -ge $box[0]-2 -and $x -le $box[0]+$box[2]+2 -and $y -ge $box[1]-2 -and $y -le $box[1]+$box[3]+2)
+}
+function GetScreenBox($left, $top, $rect) {
+    # Comma binds more tightly than + in PowerShell. Group each coordinate.
+    return @(($left + $rect.X), ($top + $rect.Y), $rect.Width, $rect.Height)
 }
 function GetUia($request) {
     if (-not $uiaReady) { return @{code='helper'} }
@@ -102,7 +109,7 @@ function GetUia($request) {
     return @{code='unsupported'}
 }
 function GetOcr($request, $point) {
-    if (-not $ocrReady) { return @{code='ocr_missing'} }
+    if (-not $ocrReady) { return @{code='ocr_missing';stage=$ocrInitStage} }
     $info = [WordLoomPointNative+MonitorInfo]::new()
     $info.Size = [System.Runtime.InteropServices.Marshal]::SizeOf($info)
     $monitor = [WordLoomPointNative]::MonitorFromPoint($point, 2)
@@ -112,10 +119,12 @@ function GetOcr($request, $point) {
     $left = [int][Math]::Max($info.Monitor.Left, [Math]::Min([int]$request.x - $width/2, $info.Monitor.Right-$width))
     $top = [int][Math]::Max($info.Monitor.Top, [Math]::Min([int]$request.y - $height/2, $info.Monitor.Bottom-$height))
     $bitmap=$null; $graphics=$null; $memory=$null; $random=$null; $writer=$null; $software=$null
+    $stage = 'capture'
     try {
         $bitmap = [System.Drawing.Bitmap]::new($width, $height)
         $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
         $graphics.CopyFromScreen($left, $top, 0, 0, [System.Drawing.Size]::new($width,$height))
+        $stage = 'decode'
         $memory = [System.IO.MemoryStream]::new()
         $bitmap.Save($memory, [System.Drawing.Imaging.ImageFormat]::Png)
         $random = [Windows.Storage.Streams.InMemoryRandomAccessStream]::new()
@@ -126,17 +135,20 @@ function GetOcr($request, $point) {
         $random.Seek(0)
         $decoder = AwaitResult ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($random)) ([Windows.Graphics.Imaging.BitmapDecoder])
         $software = AwaitResult ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
+        $stage = 'recognize'
         $result = AwaitResult ($engine.RecognizeAsync($software)) ([Windows.Media.Ocr.OcrResult])
+        $stage = 'hitbox'
+        if ($result.Lines.Count -eq 0) { return @{code='ocr_no_text';stage=$stage} }
         $index = -1; $found=$null; $foundBox=$null
         for ($j=0; $j -lt $result.Lines.Count; $j++) {
             foreach ($word in $result.Lines[$j].Words) {
                 $r = $word.BoundingRect
-                $box = @($left+$r.X, $top+$r.Y, $r.Width, $r.Height)
+                $box = GetScreenBox $left $top $r
                 if (PointInside $box $request.x $request.y) { $index=$j; $found=$word.Text; $foundBox=$box; break }
             }
             if ($null -ne $found) { break }
         }
-        if ([string]::IsNullOrWhiteSpace($found)) { return @{code='empty'} }
+        if ([string]::IsNullOrWhiteSpace($found)) { return @{code='ocr_no_hit';stage=$stage} }
         $lines = @()
         for ($j=[Math]::Max(0,$index-1); $j -le [Math]::Min($result.Lines.Count-1,$index+1); $j++) {
             $lines += $result.Lines[$j].Text
@@ -144,7 +156,7 @@ function GetOcr($request, $point) {
         $context = [string]::Join("`n", $lines)
         if ($context.Length -gt 4000) { $context=$context.Substring(0,4000) }
         return @{code='ok';word=$found;context=$context;source='ocr';box=$foundBox}
-    } catch { return @{code='ocr_error'} }
+    } catch { return @{code='ocr_error';stage=$stage} }
     finally {
         foreach ($item in @($software,$writer,$random,$memory,$graphics,$bitmap)) {
             if ($null -ne $item) { try { $item.Dispose() } catch {} }

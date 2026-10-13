@@ -29,14 +29,26 @@ ERRORS = {
     'changed': '取词期间目标窗口已变化，本次已停止。',
     'ocr_missing': '本机 Windows OCR 或识别语言不可用。请在 Windows 语言设置中安装所需语言的 OCR 功能，或手动粘贴。',
     'ocr_error': '本机截图/OCR 未成功。请检查屏幕权限、受保护内容及识别语言，或手动粘贴。',
+    'ocr_no_text': '本机 OCR 未识别出文字。请检查识别语言、字号及屏幕内容，或手动粘贴。',
+    'ocr_no_hit': '本机 OCR 识别到了文字，但鼠标未命中词框。请把指针移到字形中间重试。',
     'timeout': '取词辅助程序超时，已结束并可重试。',
     'helper': '指针取词辅助程序不可用。请检查 Windows PowerShell 与本机执行策略。',
     'invalid': '取词返回了无效或不匹配的数据，本次未发送模型请求。',
 }
 
 
-def pointer_error(code):
-    raise ApiError('pointer_' + code, ERRORS.get(code, ERRORS['invalid']))
+STAGES = {
+    'init': '组件初始化', 'bridge': '异步接口初始化', 'language': '识别语言初始化',
+    'capture': '屏幕捕获', 'decode': '图像解码', 'recognize': '文字识别', 'hitbox': '词框定位',
+}
+
+
+def pointer_error(code, stage=None):
+    message = ERRORS.get(code, ERRORS['invalid'])
+    # Only locally defined labels, never echo raw helper errors or screen content.
+    if isinstance(stage, str) and stage in STAGES:
+        message += f'（阶段：{STAGES[stage]} / {stage}）'
+    raise ApiError('pointer_' + code, message)
 
 
 def parse_pointer(raw, target):
@@ -48,7 +60,7 @@ def parse_pointer(raw, target):
             raise ValueError()
         code = data['code']
         if code != 'ok':
-            pointer_error(code if code in ERRORS else 'invalid')
+            pointer_error(code if code in ERRORS else 'invalid', data.get('stage'))
         word, context, source, box = (data[k] for k in ('word', 'context', 'source', 'box'))
         if not isinstance(word, str) or not word.strip() or len(word) > 128 or '\0' in word:
             raise ValueError()
