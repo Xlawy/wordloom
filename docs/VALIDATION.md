@@ -1,5 +1,9 @@
 # 验证记录（2026-10-13 更新）
 
+## 最新：选词翻译
+
+用户已反馈 M2.1 原生验收通过。本轮 M2.2 代码与共用测试完成：55 项核心、12 项界面测试和 offscreen 启动通过，真实 HTTP 组及 1 项 HTTP/UI 联合检查环境跳过。Windows UI Automation 未在 agent 实测；[详细实现、测试边界与验收表](M2_SELECTION.md)。以下为此前阶段记录。
+
 ## 最新：主题修复与 M2.1
 
 用户报告 Windows 原生启动和现有功能正常。本轮主题/快捷键代码及原生验收门槛见 [M2_WINDOWS_HOTKEY.md](M2_WINDOWS_HOTKEY.md)。本轮 47 项核心测试通过、8 项 UI 测试通过、1 项 UI/HTTP 联合测试环境跳过，offscreen 启动通过；核心 HTTP 类仍因套接字跳过。下文是此前阶段记录，不代表新增功能已在 Windows 实测。

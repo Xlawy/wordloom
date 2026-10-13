@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime
+from dataclasses import replace
 from pathlib import Path
 import sqlite3
 
@@ -16,6 +17,8 @@ from .config import ConfigStore, Settings
 from .jobs import Job
 from .library import Entry, Library, LibraryError
 from .network import Client
+from .providers import ApiError
+from .platforms.selection import create_selection
 from .platforms.credentials import CredentialError, Credentials
 from .ui_settings import SettingsDialog
 from .desktop import DesktopStore, DesktopSettings, DesktopError, HotkeyController
@@ -70,6 +73,9 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.store, self.settings, self.library, self.credentials = store, settings, library, credentials
         self.job = None
+        self.selection_job = None
+        self.selection_target = None
+        self._closing = False
         self.last_request = None
         self.completed_request = None
         self.review_card = None
@@ -117,23 +123,35 @@ class MainWindow(QMainWindow):
         try:
             self.desktop_settings = self.desktop_store.load()
         except (DesktopError, OSError):
-            self.desktop_settings = DesktopSettings(hotkey_enabled=False)
+            self.desktop_settings = DesktopSettings(hotkey_enabled=False, selection_enabled=False)
             load_error = '外观/快捷键配置无法读取，原文件已保留；请打开外观与快捷键设置检查。'
         self.theme.apply(self.desktop_settings.theme)
-        self.hotkeys = HotkeyController(create_hotkeys(), self.toggle_window)
+        self.selection_backend = create_selection()
+        self.hotkeys = HotkeyController(create_hotkeys(), self.toggle_window,
+                                        self.translate_selection if self.selection_backend.available else None)
         app.aboutToQuit.connect(self.hotkeys.close)
         try:
             if self.hotkeys.backend.available:
                 self.hotkeys.configure(self.desktop_settings)
             self.hotkey_status()
         except DesktopError as exc:
-            self.statusBar().showMessage(str(exc))
+            # A newly introduced selection-key conflict must not disable the old toggle key.
+            try:
+                self.hotkeys.configure(replace(self.desktop_settings, selection_enabled=False))
+            except DesktopError:
+                pass
+            self.statusBar().showMessage(str(exc) + ' 请到“外观与快捷键”查看；选词快捷键未启用。')
         if load_error:
             self.statusBar().showMessage(load_error)
 
     def hotkey_status(self):
+        descriptions = []
         if self.hotkeys.current:
-            self.statusBar().showMessage('全局快捷键：' + self.hotkeys.current[1] + ' · 前台隐藏，否则唤起；关闭窗口退出。')
+            descriptions.append('唤起/隐藏：' + self.hotkeys.current[1])
+        if self.hotkeys.selection_current:
+            descriptions.append('选词翻译：' + self.hotkeys.selection_current[1])
+        if descriptions:
+            self.statusBar().showMessage(' · '.join(descriptions) + ' · 关闭窗口退出。')
         elif not self.hotkeys.backend.available:
             self.statusBar().showMessage(self.hotkeys.backend.reason)
         else:
@@ -153,6 +171,9 @@ class MainWindow(QMainWindow):
         if self.isVisible() and not self.isMinimized() and self.isActiveWindow():
             self.hide()
             return
+        self.reveal_translation()
+
+    def reveal_translation(self):
         self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMinimized)
         self.show()
         self.raise_()
@@ -160,6 +181,84 @@ class MainWindow(QMainWindow):
         if self.hotkeys.backend.available:
             self.hotkeys.backend.api.foreground(int(self.winId()))
         self.tabs.setCurrentIndex(0)
+        self.input.setFocus()
+
+    def translate_selection(self):
+        if self._closing:
+            return
+        if (self.job and self.job.active) or (self.selection_job and self.selection_job.active):
+            self.statusBar().showMessage('正在处理请求；请先完成或取消，再重新选词。')
+            return
+        if QApplication.instance().activeModalWidget():
+            self.statusBar().showMessage('请先关闭设置对话框，再回到原文选词。')
+            return
+        if not self.selection_backend.available:
+            self.reveal_translation()
+            self.request_status.setText(self.selection_backend.reason)
+            return
+        if self.settings.active() is None:
+            self.reveal_translation()
+            self.request_status.setText('请先创建文本翻译配置，再回到原文使用选词快捷键。')
+            return
+        try:
+            self.selection_target = self.selection_backend.capture_target()
+        except ApiError as exc:
+            self.reveal_translation()
+            self.request_status.setText(str(exc))
+            return
+        self.last_request = None
+        self.completed_request = None
+        self.save_button.setEnabled(False)
+        self.result.clear()
+        self.result_info.setText('正在读取选区；尚未发送模型请求。')
+        self.set_request_busy(True)
+        self.request_status.setText('正在读取选区，请保持原文窗口在前台。可按唤起快捷键后取消。')
+        target = self.selection_target
+        self.selection_job = Job(lambda token, progress: self.selection_backend.read(target, token), 6, self)
+        self.selection_job.success.connect(self.selection_done)
+        self.selection_job.failure.connect(self.selection_failed)
+        self.selection_job.start()
+
+    def selection_done(self, text):
+        if self._closing:
+            return
+        if not self.selection_backend.is_current(self.selection_target):
+            self.selection_failed('selection_focus_changed', '取词期间前台窗口已变化，本次未发送。请重新选择或手动复制粘贴。')
+            return
+        self.set_request_busy(False)
+        self.input.setPlainText(text)
+        self.context.clear()  # Never attach context from an earlier selection/request.
+        self.mode.setCurrentIndex(self.mode.findData('translate'))
+        self.reveal_translation()
+        self.translate()
+
+    def selection_failed(self, code, message):
+        if self._closing:
+            return
+        self.set_request_busy(False)
+        self.reveal_translation()
+        self.request_status.setText(message)
+        self.result_info.setText('选词未完成；没有发送模型请求。')
+        self.paste_button.setFocus()
+
+    def paste_text(self):
+        if (self.job and self.job.active) or (self.selection_job and self.selection_job.active):
+            return
+        text = QApplication.clipboard().text()
+        if not text.strip():
+            self.request_status.setText('剪贴板中没有文本。请先在原应用中复制选区。')
+            return
+        if len(text) > 20000:
+            self.request_status.setText('剪贴板文本超过 20000 字符，请复制更小的选区。')
+            return
+        self.input.setPlainText(text)
+        self.context.clear()
+        self.completed_request = self.last_request = None
+        self.save_button.setEnabled(False)
+        self.retry_button.setEnabled(False)
+        self.result.clear()
+        self.result_info.setText('已粘贴，尚未发送模型请求。')
+        self.request_status.setText('已粘贴文本，请点击“开始处理”或按 Ctrl+Enter。')
         self.input.setFocus()
 
     def make_translate_page(self):
@@ -187,9 +286,9 @@ class MainWindow(QMainWindow):
         self.context = text_edit("原文所在的句子或阅读背景，有助于模型判断含义。")
         self.context.setObjectName("sourceContext")
         left.addWidget(self.context, 2)
-        paste = QPushButton("粘贴剪贴板文本")
-        paste.clicked.connect(lambda: self.input.setPlainText(QApplication.clipboard().text()))
-        left.addWidget(paste)
+        self.paste_button = QPushButton("粘贴剪贴板文本")
+        self.paste_button.clicked.connect(self.paste_text)
+        left.addWidget(self.paste_button)
         right.addWidget(QLabel("模型结果"))
         self.result = text_edit("配置好 API 后即可开始。词库和复习无需联网。", True)
         self.result.setObjectName("modelResult")
@@ -267,7 +366,7 @@ class MainWindow(QMainWindow):
             self.refresh_profiles()
 
     def translate(self, checked=False, *, retry=False):
-        if self.job and self.job.active:
+        if (self.job and self.job.active) or (self.selection_job and self.selection_job.active):
             return
         try:
             if retry and self.last_request:
@@ -303,7 +402,7 @@ class MainWindow(QMainWindow):
         self.job.start()
 
     def set_request_busy(self, busy):
-        for widget in (self.input, self.context, self.profiles, self.mode, self.settings_button, self.translate_button):
+        for widget in (self.input, self.context, self.profiles, self.mode, self.settings_button, self.desktop_button, self.paste_button, self.translate_button):
             widget.setEnabled(not busy)
         self.cancel_button.setEnabled(busy)
         self.retry_button.setEnabled(not busy and self.last_request is not None)
@@ -325,6 +424,9 @@ class MainWindow(QMainWindow):
         self.result_info.setText("未完成 · 部分内容仅供查看，未保存")
 
     def cancel_request(self):
+        if self.selection_job and self.selection_job.active:
+            self.selection_job.cancel()
+            self.selection_backend.cancel()
         if self.job and self.job.active:
             self.job.cancel()
 
@@ -529,6 +631,7 @@ class MainWindow(QMainWindow):
             self.refresh_review()
 
     def closeEvent(self, event):
+        self._closing = True
         self.hotkeys.close()
         self.cancel_request()
         self.credentials.clear_session()

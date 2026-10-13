@@ -37,11 +37,18 @@ class DesktopSettings:
     theme: str = 'system'
     hotkey_enabled: bool = True
     toggle_hotkey: str = 'Ctrl+Alt+W'
+    selection_enabled: bool = True
+    selection_hotkey: str = 'Ctrl+Alt+T'
 
     def validate(self):
         if self.theme not in ('system', 'light', 'dark') or type(self.hotkey_enabled) is not bool:
             raise DesktopError('外观或快捷键设置无效。')
-        parse_hotkey(self.toggle_hotkey)
+        toggle = parse_hotkey(self.toggle_hotkey)[0]
+        selection = parse_hotkey(self.selection_hotkey)[0]
+        if type(self.selection_enabled) is not bool:
+            raise DesktopError('选词快捷键设置无效。')
+        if self.hotkey_enabled and self.selection_enabled and toggle == selection:
+            raise DesktopError('唤起与选词不能使用同一快捷键。')
 
 
 class DesktopStore:
@@ -57,6 +64,8 @@ class DesktopStore:
             data = json.loads(self.path.read_text(encoding='utf-8'))
             if not isinstance(data, dict) or data.pop('schema', None) != 1:
                 raise ValueError()
+            if 'selection_hotkey' not in data and parse_hotkey(data.get('toggle_hotkey', 'Ctrl+Alt+W'))[0] == 'Ctrl+Alt+T':
+                data['selection_enabled'] = False  # Preserve an older user's toggle binding.
             settings = DesktopSettings(**data)
             settings.validate()
             return settings
@@ -70,37 +79,65 @@ class DesktopStore:
 
 
 class HotkeyController:
-    """Reserve a replacement before saving and releasing the working shortcut."""
-    def __init__(self, backend, callback):
-        self.backend, self.callback = backend, callback
-        self.current = None  # (id, normalized shortcut)
-        self.next_id = 0x5740
+    """Reserve all new combinations before saving; retain both old keys on failure."""
+    def __init__(self, backend, callback, selection_callback=None):
+        self.backend = backend
+        self.callbacks = {'toggle': callback, 'selection': selection_callback}
+        self.bindings = {}  # normalized key -> native id
+        self.actions = {}   # action -> normalized key
+
+    @property
+    def current(self):
+        key = self.actions.get('toggle')
+        return (self.bindings[key], key) if key else None
+
+    @property
+    def selection_current(self):
+        key = self.actions.get('selection')
+        return (self.bindings[key], key) if key else None
+
+    def dispatch(self, key):
+        for action, bound in self.actions.items():
+            if key == bound:
+                self.callbacks[action]()
+                return
 
     def configure(self, settings, persist=lambda: None):
         settings.validate()
-        name, modifiers, key = parse_hotkey(settings.toggle_hotkey)
-        if settings.hotkey_enabled and not self.backend.available:
+        actions, keys = {}, {}
+        for action, enabled, shortcut in (
+            ('toggle', settings.hotkey_enabled, settings.toggle_hotkey),
+            ('selection', settings.selection_enabled, settings.selection_hotkey),
+        ):
+            if enabled and self.callbacks[action] is not None:
+                name, modifiers, key = parse_hotkey(shortcut)
+                actions[action] = name
+                keys[name] = (modifiers, key)
+        if keys and not self.backend.available:
             raise DesktopError(self.backend.reason)
-        if settings.hotkey_enabled and self.current and self.current[1] == name:
-            persist()
-            return
-        pending = None
-        if settings.hotkey_enabled:
-            pending = self.next_id
-            self.backend.register(pending, modifiers, key, self.callback)
+        pending = {}
         try:
+            for name, (modifiers, key) in keys.items():
+                if name in self.bindings:
+                    continue
+                used = set(self.bindings.values()) | set(pending.values())
+                ident = next(i for i in range(0x5740, 0x5750) if i not in used)
+                self.backend.register(ident, modifiers, key, lambda name=name: self.dispatch(name))
+                pending[name] = ident
             persist()
         except Exception:
-            if pending is not None:
-                self.backend.unregister(pending)
+            for ident in pending.values():
+                self.backend.unregister(ident)
             raise
-        if self.current:
-            self.backend.unregister(self.current[0])
-        self.current = (pending, name) if pending is not None else None
-        self.next_id = 0x5741 if pending == 0x5740 else 0x5740
+        for name, ident in self.bindings.items():
+            if name not in keys:
+                self.backend.unregister(ident)
+        self.bindings = {name: self.bindings[name] if name in self.bindings else pending[name] for name in keys}
+        self.actions = actions
 
     def close(self):
-        if self.current:
-            self.backend.unregister(self.current[0])
-            self.current = None
+        for ident in self.bindings.values():
+            self.backend.unregister(ident)
+        self.bindings.clear()
+        self.actions.clear()
         self.backend.close()

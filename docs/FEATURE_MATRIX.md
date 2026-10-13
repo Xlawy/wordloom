@@ -34,3 +34,7 @@
 ## 后续更新：主题与 M2.1
 
 用户反馈 Windows 启动与原有功能正常。`theme.py` 修复明暗混用，新增完整主题切换；`desktop.py`/`ui_desktop.py` 提供独立偏好及事务式快捷键修改，`platforms/hotkeys.py` 实现 Windows 注册与事件适配。当前仅“全局唤起/隐藏”代码完成，**不能等同已实现选中文字或截图**。8 项界面及 47 项核心测试通过，Windows 物理按键验收待执行。macOS 全局快捷键尚未实现，主题未原生验证。详见 [M2.1](M2_WINDOWS_HOTKEY.md)。
+
+## M2.2 更新
+
+M2.1 已获用户 Windows 原生通过反馈。新增 `platforms/selection.py` 与 `resources/read_selection.ps1`，读取外部焦点控件的 UIA 选区，不操作剪贴板。共用快捷键控制器支持两组独立配置与事务式修改；工作台复用现有模型、词库和复习。选词闭环替身测试及辅助进程生命周期测试通过；Windows 应用兼容性待验收。macOS 选词未实现。下一项仍为截图/OCR，尚未开始。见 [M2.2](M2_SELECTION.md)。

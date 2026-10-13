@@ -63,3 +63,39 @@ class DesktopTests(unittest.TestCase):
             with self.assertRaises(DesktopError):
                 store.load()
             self.assertEqual(store.path.read_text(encoding='utf-8'), 'broken')
+
+    def test_two_keys_atomic_conflict_save_failure_swap_and_dispatch(self):
+        backend = FakeHotkeys()
+        calls = []
+        controller = HotkeyController(backend, lambda: calls.append('toggle'), lambda: calls.append('selection'))
+        settings = DesktopSettings()
+        controller.configure(settings)
+        original = dict(backend.active)
+        backend.conflicts.add((3, ord('Q')))
+        with self.assertRaises(DesktopError):
+            controller.configure(replace(settings, toggle_hotkey='Ctrl+Alt+E', selection_hotkey='Ctrl+Alt+Q'))
+        self.assertEqual(backend.active, original)
+        with self.assertRaises(DesktopError):
+            replace(settings, selection_hotkey='Alt+Ctrl+W').validate()
+        def fail_save():
+            raise OSError('disk full')
+        with self.assertRaises(OSError):
+            controller.configure(replace(settings, selection_hotkey='Ctrl+Alt+E'), fail_save)
+        self.assertEqual(backend.active, original)
+        controller.configure(replace(settings, toggle_hotkey='Ctrl+Alt+T', selection_hotkey='Ctrl+Alt+W'))
+        self.assertEqual(backend.active, original)  # Swapping actions does not reregister occupied combinations.
+        for modifiers, key, callback in backend.active.values():
+            callback()
+        self.assertEqual(calls, ['selection', 'toggle'])
+        controller.close()
+        self.assertEqual(backend.active, {})
+
+    def test_older_preferences_preserve_toggle_when_default_selection_would_collide(self):
+        import json
+        with TemporaryDirectory() as directory:
+            store = DesktopStore(Path(directory))
+            store.path.write_text(json.dumps({'schema':1,'theme':'dark','hotkey_enabled':True,'toggle_hotkey':'Ctrl+Alt+T'}), encoding='utf-8')
+            settings = store.load()
+            self.assertTrue(settings.hotkey_enabled)
+            self.assertFalse(settings.selection_enabled)
+            self.assertEqual(settings.toggle_hotkey, 'Ctrl+Alt+T')

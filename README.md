@@ -2,7 +2,7 @@
 
 独立编写的 Python / PySide6 桌面词库：**自定义模型翻译 → 收藏原文与上下文 → 离线复习**。使用自己的名称、界面和代码；不加载分析样本，不读取其他软件的凭据，不连接原软件服务。
 
-用户已报告 Windows 原生可启动、核心功能正常。本轮修复深色模式，新增“外观与快捷键”设置及 Windows 全局唤起/隐藏快捷键（默认 Ctrl+Alt+W）。自动测试通过的范围与 Windows 原生待验收项见 [M2.1 说明](docs/M2_WINDOWS_HOTKEY.md)。按顺序先验收这一项，再做选词、区域截图 OCR、托盘；macOS 原生状态单独记录。
+用户已确认 Windows 主题和唤起/隐藏快捷键通过。本轮新增选词翻译：在其他程序选中文字后按 `Ctrl+Alt+T`，通过 UI Automation 读取选区并调用当前翻译模型；失败可手动复制粘贴。默认唤起/隐藏仍为 `Ctrl+Alt+W`。选词代码和共用闭环测试已完成，Windows 具体应用兼容性待原生验收；详见 [M2.2 使用与验收](docs/M2_SELECTION.md)。截图 OCR 和托盘随后逐项实施。
 
 ## 启动（已安装依赖的当前 WSL 环境）
 
@@ -65,7 +65,7 @@ py -3.13 -m venv .venv-win
 - 支持 OpenAI-compatible Chat Completions 的 SSE 和 JSON 响应；不自动把任意服务地址当成兼容端点。后续可增加 `providers.Adapter` 实现。
 - 默认不自动重试、不跟随重定向，不忽略 TLS 验证。仅本机回环地址允许 HTTP。当前 HTTP 实现直连服务，不自动使用系统/环境代理；依赖代理的服务需要后续代理适配。
 - 翻译与 OCR 配置独立；OCR 只有显式图像能力开启后才构造图片请求，目前可做图像连接测试。用户选图、区域截图和取词联动属于 M2。
-- Windows 全局唤起/隐藏快捷键代码已实现，原生验收待完成；选区、托盘、发音、账户同步、自动更新未实现。macOS 全局快捷键明确不可用。详见 [功能对照表](docs/FEATURE_MATRIX.md)。
+- Windows 唤起/隐藏快捷键已获用户原生验收反馈；UI Automation 选词翻译代码完成、原生待验收。托盘、发音、账户同步、自动更新未实现。macOS 全局快捷键和选词明确不可用。详见 [功能对照表](docs/FEATURE_MATRIX.md)。
 - 改变 API 地址会改变凭据标识，旧 Key 不会发送到新地址。旧地址的凭据可能仍留在系统库；可恢复旧地址后勾选清除，或在系统凭据管理器中删除 `org.wordloom.desktop.api` 对应项。删除配置清理其当前地址的凭据。
 
 ## 数据
@@ -98,4 +98,4 @@ py -3.13 -m venv .venv-win
 - [实际验证记录](docs/VALIDATION.md)
 - [Windows/macOS 构建与原生验收](docs/NATIVE_CHECKLIST.md)
 
-下一步在 Windows 验收本次主题修复与全局快捷键。详见 [M2.1 操作与记录表](docs/M2_WINDOWS_HOTKEY.md)，通过后继续选词翻译。
+下一步在 Windows 验收 [M2.2 选词翻译](docs/M2_SELECTION.md)，通过后实现区域截图、OCR 修正和翻译联动。

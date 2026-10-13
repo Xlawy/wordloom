@@ -37,3 +37,5 @@ API Key 通过 Windows Credential Manager / macOS Keychain（keyring 原生后�
 ## 最新执行顺序
 
 用户已报告 Windows 原有功能正常。本轮先修复主题并实现 M2.1 全局快捷键（代码及共用测试完成，Windows 物理按键验收待完成）。后续严格依次为选词翻译、截图 OCR/修正/翻译、托盘退出；每项先端到端验收再继续。M2.1 原生门槛和 macOS 单独状态见 M2_WINDOWS_HOTKEY.md。
+
+M2.1 已由用户确认通过。M2.2 当前实现为 UI Automation 读取选区 → 当前模型翻译 → 收藏/复习，失败转手动粘贴；只读选区，不写剪贴板。原生验收后才做截图/OCR，再做托盘。详见 M2_SELECTION.md。

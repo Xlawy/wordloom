@@ -47,7 +47,7 @@ python3.13 -m venv .venv
 
 ## 后续平台功能
 
-Windows 全局唤起/隐藏快捷键已实现但原生待验收；macOS 快捷键、选区读取、截图、系统 TTS、托盘尚未实现。M2 在 Windows 验证 UI Automation、热键冲突和多屏 DPI；在 macOS 验证 Accessibility、Screen Recording 权限与授权后恢复。剪贴板复制回退需要验证原内容恢复、前台切换和取消；在此之前不启用自动 Ctrl+C/Cmd+C。
+Windows 全局唤起/隐藏快捷键已获用户原生验收通过反馈；Windows 选区读取已实现，待 [M2.2 原生验收](M2_SELECTION.md)。macOS 快捷键与选区、两平台截图、系统 TTS 和托盘尚未实现。M2 在 Windows 验证 UI Automation、热键冲突和多屏 DPI；在 macOS 验证 Accessibility、Screen Recording 权限与授权后恢复。剪贴板复制回退需要验证原内容恢复、前台切换和取消；在此之前不启用自动 Ctrl+C/Cmd+C。
 
 ## 账户同步/自动更新设计前置
 
