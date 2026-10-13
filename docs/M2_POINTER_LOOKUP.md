@@ -81,3 +81,13 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\check_pointer_wo
 ```
 
 第一条从生产脚本 AST 提取坐标转换及命中函数，实际执行正负坐标/小数/命中和未命中回归，不读取屏幕；第二条实际测试本机截图 OCR，需在倒计时内将指针放到待测普通文字。Windows 脚本测试尚未在 agent 执行成功，互操作仍受 socket 限制。
+
+## hitbox 失败后的处理调整
+
+用户确认前次修复后仍报 `hitbox`。这说明 RecognizeAsync 已返回，异常位于结果读取、词框或上下文处理；不能仅凭这一标签断言具体异常类型，也不应继续将原因归为屏幕权限。
+
+本次将 OCR 后处理移动至 `pointer.py::locate_ocr`：Windows 辅助程序按行/词枚举并导出基本字符串与局部坐标；Python 验证数值和边界、转换屏幕坐标、命中词框并取相邻上下文。移除了在 PowerShell 中对 WinRT 行集合的 Count/索引依赖和上下文数值运算。接口依据：[Microsoft OcrResult.Lines](https://learn.microsoft.com/en-us/uwp/api/windows.media.ocr.ocrresult.lines)。这是一项针对失败阶段的改造，尚无 Windows 复测结果，不宣称已确认唯一根因。
+
+后续错误细分为 `export_lines`、`export_words`、`export_box`，附带受限的整数脚本行号和 HRESULT；不显示原始异常或屏幕文字。`scripts/check_pointer_worker.ps1` 已改为检查生产导出函数，覆盖没有 Count/索引接口的可枚举集合、单元素/空集合及 JSON 序列化。该脚本仍需 Windows 原生执行。
+
+继续使用此前更新、重启命令，无需新增依赖。若仍失败，请提供新的完整阶段及 `[L..., HRESULT ...]` 提示；它可以定位具体语句，避免仅凭应用名称猜测。

@@ -39,6 +39,8 @@ if ($Mode -eq 'uia') {
         Add-Type -AssemblyName System.Runtime.WindowsRuntime
         [void][Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType=WindowsRuntime]
         [void][Windows.Media.Ocr.OcrResult, Windows.Foundation, ContentType=WindowsRuntime]
+        [void][Windows.Media.Ocr.OcrLine, Windows.Foundation, ContentType=WindowsRuntime]
+        [void][Windows.Media.Ocr.OcrWord, Windows.Foundation, ContentType=WindowsRuntime]
         [void][Windows.Globalization.Language, Windows.Foundation, ContentType=WindowsRuntime]
         [void][Windows.Graphics.Imaging.BitmapDecoder, Windows.Foundation, ContentType=WindowsRuntime]
         [void][Windows.Graphics.Imaging.SoftwareBitmap, Windows.Foundation, ContentType=WindowsRuntime]
@@ -66,9 +68,23 @@ function AwaitResult($operation, [Type]$type) {
 function PointInside($box, $x, $y) {
     return ($x -ge $box[0]-2 -and $x -le $box[0]+$box[2]+2 -and $y -ge $box[1]-2 -and $y -le $box[1]+$box[3]+2)
 }
-function GetScreenBox($left, $top, $rect) {
-    # Comma binds more tightly than + in PowerShell. Group each coordinate.
-    return @(($left + $rect.X), ($top + $rect.Y), $rect.Width, $rect.Height)
+function ExportOcrLines($result, $left, $top) {
+    # Materialize WinRT collections by enumeration; no Count/indexer arithmetic.
+    $script:ocrExportStage = 'export_lines'
+    $lines = @(
+        foreach ($line in $result.Lines) {
+            $script:ocrExportStage = 'export_words'
+            $words = @(
+                foreach ($word in $line.Words) {
+                    $script:ocrExportStage = 'export_box'
+                    $rect = $word.BoundingRect
+                    @{text=[string]$word.Text; box=@([double]$rect.X, [double]$rect.Y, [double]$rect.Width, [double]$rect.Height)}
+                }
+            )
+            @{text=[string]$line.Text; words=$words}
+        }
+    )
+    return @{code='ocr_lines'; left=[int]$left; top=[int]$top; lines=$lines}
 }
 function GetUia($request) {
     if (-not $uiaReady) { return @{code='helper'} }
@@ -137,26 +153,12 @@ function GetOcr($request, $point) {
         $software = AwaitResult ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
         $stage = 'recognize'
         $result = AwaitResult ($engine.RecognizeAsync($software)) ([Windows.Media.Ocr.OcrResult])
-        $stage = 'hitbox'
-        if ($result.Lines.Count -eq 0) { return @{code='ocr_no_text';stage=$stage} }
-        $index = -1; $found=$null; $foundBox=$null
-        for ($j=0; $j -lt $result.Lines.Count; $j++) {
-            foreach ($word in $result.Lines[$j].Words) {
-                $r = $word.BoundingRect
-                $box = GetScreenBox $left $top $r
-                if (PointInside $box $request.x $request.y) { $index=$j; $found=$word.Text; $foundBox=$box; break }
-            }
-            if ($null -ne $found) { break }
-        }
-        if ([string]::IsNullOrWhiteSpace($found)) { return @{code='ocr_no_hit';stage=$stage} }
-        $lines = @()
-        for ($j=[Math]::Max(0,$index-1); $j -le [Math]::Min($result.Lines.Count-1,$index+1); $j++) {
-            $lines += $result.Lines[$j].Text
-        }
-        $context = [string]::Join("`n", $lines)
-        if ($context.Length -gt 4000) { $context=$context.Substring(0,4000) }
-        return @{code='ok';word=$found;context=$context;source='ocr';box=$foundBox}
-    } catch { return @{code='ocr_error';stage=$stage} }
+        $stage = 'export_lines'
+        return ExportOcrLines $result $left $top
+    } catch {
+        if ($stage -eq 'export_lines') { $stage = $script:ocrExportStage }
+        return @{code='ocr_error';stage=$stage;native_line=[int]$_.InvocationInfo.ScriptLineNumber;native_hresult=[int]$_.Exception.HResult}
+    }
     finally {
         foreach ($item in @($software,$writer,$random,$memory,$graphics,$bitmap)) {
             if ($null -ne $item) { try { $item.Dispose() } catch {} }
@@ -178,7 +180,7 @@ while ($null -ne ($line = [Console]::ReadLine())) {
             else { $result = GetOcr $request $point }
         }
         $result['id'] = $request.id
-        [Console]::WriteLine(($result | ConvertTo-Json -Compress -Depth 5))
+        [Console]::WriteLine(($result | ConvertTo-Json -Compress -Depth 8))
     } catch {
         [Console]::WriteLine((@{code='helper';id=$request.id} | ConvertTo-Json -Compress))
     }

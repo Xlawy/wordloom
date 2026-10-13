@@ -46,6 +46,14 @@ class PointerTests(unittest.TestCase):
             self.assertNotIn('阶段', str(raised.exception))
             self.assertNotIn('private screen content', str(raised.exception))
 
+    def test_native_diagnostics_only_accept_bounded_numbers(self):
+        for line, hresult, expected in ((177, -2146233087, True), ('private text', -1, False), (True, -1, False), (177, 'secret', False)):
+            with self.assertRaises(ApiError) as raised:
+                parse_pointer(json.dumps(dict(code='ocr_error',stage='export_box',native_line=line,native_hresult=hresult)),TARGET)
+            self.assertEqual('HRESULT' in str(raised.exception), expected)
+            self.assertNotIn('private text', str(raised.exception))
+            self.assertNotIn('secret', str(raised.exception))
+
     def test_word_context_and_physical_negative_coordinates(self):
         found = parse_pointer(result(), TARGET)
         self.assertEqual(found.word, 'serendipity')
@@ -128,3 +136,48 @@ for line in sys.stdin:
                 timer.cancel()
                 helper.discard()
                 for child in children: child.wait(timeout=2)
+
+
+class OcrGeometryTests(unittest.TestCase):
+    def packet(self):
+        return dict(code='ocr_lines', left=-200, top=-100, lines=[
+            dict(text='previous line', words=[]),
+            dict(text='a moment of serendipity', words=[dict(text='serendipity', box=[90.5,120.25,85,18])]),
+            dict(text='next line', words=[])])
+
+    def test_raw_ocr_fallback_geometry_and_adjacent_context(self):
+        raw = json.dumps(self.packet())
+        backend = WindowsPointer(Focus(), Helper(b'{"code":"unsupported"}'), Helper(raw))
+        result = backend.read(TARGET, Cancellation())
+        self.assertEqual(result.word, 'serendipity')
+        self.assertEqual(result.box, (-109.5,20.25,85,18))
+        self.assertEqual(result.context, 'previous line\na moment of serendipity\nnext line')
+        self.assertEqual(result.source, 'ocr')
+
+    def test_empty_and_missed_are_distinct(self):
+        for packet, expected in ((dict(code='ocr_lines',left=0,top=0,lines=[]),'pointer_ocr_no_text'),
+                                  ({**self.packet(), 'left':300},'pointer_ocr_no_hit')):
+            with self.assertRaises(ApiError) as raised:
+                parse_pointer(json.dumps(packet), TARGET)
+            self.assertEqual(raised.exception.code, expected)
+
+    def test_bad_geometry_and_collection_shapes_rejected(self):
+        for box in ([90,120,0,10], [True,120,80,10], [90,120,float('nan'),10], [-1,20,30,10], [690,20,80,10]):
+            packet = self.packet()
+            packet['lines'][1]['words'][0]['box'] = box
+            with self.assertRaises(ApiError) as raised:
+                parse_pointer(json.dumps(packet), TARGET)
+            self.assertEqual(raised.exception.code, 'pointer_invalid')
+        for change in ({'lines':{}}, {'left':False}, {'lines':[None]}, {'lines':[{'text':'hello','words':{}}]}):
+            with self.assertRaises(ApiError):
+                parse_pointer(json.dumps({**self.packet(), **change}), TARGET)
+
+    def test_context_bound_keeps_hit_line_and_singleton(self):
+        packet = self.packet()
+        packet['lines'][0]['text'] = 'a'*4000
+        packet['lines'][2]['text'] = 'b'*4000
+        result = parse_pointer(json.dumps(packet), TARGET)
+        self.assertLessEqual(len(result.context),4000)
+        self.assertIn('a moment of serendipity',result.context)
+        packet['lines'] = [packet['lines'][1]]
+        self.assertEqual(parse_pointer(json.dumps(packet),TARGET).context,'a moment of serendipity')

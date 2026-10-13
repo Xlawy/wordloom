@@ -40,15 +40,73 @@ ERRORS = {
 STAGES = {
     'init': '组件初始化', 'bridge': '异步接口初始化', 'language': '识别语言初始化',
     'capture': '屏幕捕获', 'decode': '图像解码', 'recognize': '文字识别', 'hitbox': '词框定位',
+    'export_lines': '读取识别行', 'export_words': '读取识别词', 'export_box': '读取文字坐标',
 }
 
 
-def pointer_error(code, stage=None):
+def pointer_error(code, stage=None, native_line=None, native_hresult=None):
     message = ERRORS.get(code, ERRORS['invalid'])
+    if code == 'ocr_error' and stage in ('hitbox', 'export_lines', 'export_words', 'export_box'):
+        message = 'OCR 已返回，但读取识别结果失败。请反馈下面的阶段信息。'
     # Only locally defined labels, never echo raw helper errors or screen content.
     if isinstance(stage, str) and stage in STAGES:
         message += f'（阶段：{STAGES[stage]} / {stage}）'
+        if (type(native_line) is int and 0 < native_line < 10000 and
+                type(native_hresult) is int and -(2**31) <= native_hresult < 2**31):
+            message += f' [L{native_line}, HRESULT 0x{native_hresult & 0xffffffff:08X}]'
     raise ApiError('pointer_' + code, message)
+
+
+def locate_ocr(data, target):
+    """Validate primitive OCR geometry and select a word in physical screen space."""
+    left, top, lines = data['left'], data['top'], data['lines']
+    if any(type(v) is not int or abs(v) > 1000000 for v in (left, top)):
+        raise ValueError()
+    if not isinstance(lines, list) or len(lines) > 256:
+        raise ValueError()
+    found = None
+    total = 0
+    for index, line in enumerate(lines):
+        if not isinstance(line, dict):
+            raise ValueError()
+        text, words = line['text'], line['words']
+        if not isinstance(text, str) or len(text) > 4000 or '\0' in text:
+            raise ValueError()
+        if not isinstance(words, list):
+            raise ValueError()
+        total += len(words)
+        if total > 2048:
+            raise ValueError()
+        for word in words:
+            if not isinstance(word, dict):
+                raise ValueError()
+            value, box = word['text'], word['box']
+            if not isinstance(value, str) or len(value) > 128 or '\0' in value:
+                raise ValueError()
+            if not isinstance(box, list) or len(box) != 4:
+                raise ValueError()
+            if any(type(v) not in (int, float) or not math.isfinite(v) for v in box):
+                raise ValueError()
+            x, y, width, height = box
+            if x < 0 or y < 0 or width <= 0 or height <= 0 or x + width > 701 or y + height > 261:
+                raise ValueError()
+            screen_box = [left + x, top + y, width, height]
+            if (found is None and value.strip() and
+                    left + x - 2 <= target.x <= left + x + width + 2 and
+                    top + y - 2 <= target.y <= top + y + height + 2):
+                found = (index, value, screen_box)
+    if not total:
+        pointer_error('ocr_no_text')
+    if found is None:
+        pointer_error('ocr_no_hit')
+    index, word, box = found
+    # Retain the hit line even when neighboring context is unusually long.
+    context = lines[index]['text']
+    before = lines[index - 1]['text'] if index else ''
+    after = lines[index + 1]['text'] if index + 1 < len(lines) else ''
+    budget = max(0, (3998 - len(context)) // 2)
+    context = '\n'.join(part for part in (before[-budget:] if budget else '', context, after[:budget]) if part)
+    return dict(code='ok', word=word, context=context, source='ocr', box=box)
 
 
 def parse_pointer(raw, target):
@@ -58,9 +116,12 @@ def parse_pointer(raw, target):
         data = json.loads(raw)
         if not isinstance(data, dict) or not isinstance(data.get('code'), str):
             raise ValueError()
+        if data['code'] == 'ocr_lines':
+            data = locate_ocr(data, target)
         code = data['code']
         if code != 'ok':
-            pointer_error(code if code in ERRORS else 'invalid', data.get('stage'))
+            pointer_error(code if code in ERRORS else 'invalid', data.get('stage'),
+                          data.get('native_line'), data.get('native_hresult'))
         word, context, source, box = (data[k] for k in ('word', 'context', 'source', 'box'))
         if not isinstance(word, str) or not word.strip() or len(word) > 128 or '\0' in word:
             raise ValueError()
