@@ -25,6 +25,7 @@ from .desktop import DesktopStore, DesktopSettings, DesktopError, HotkeyControll
 from .platforms.hotkeys import create_hotkeys
 from .theme import Theme
 from .ui_desktop import DesktopDialog
+from .ui_lookup import PointerController
 
 
 
@@ -127,8 +128,10 @@ class MainWindow(QMainWindow):
             load_error = '外观/快捷键配置无法读取，原文件已保留；请打开外观与快捷键设置检查。'
         self.theme.apply(self.desktop_settings.theme)
         self.selection_backend = create_selection()
+        self.pointer_lookup = PointerController(self)
+        app.aboutToQuit.connect(self.pointer_lookup.close)
         self.hotkeys = HotkeyController(create_hotkeys(), self.toggle_window,
-                                        self.translate_selection if self.selection_backend.available else None)
+                                        self.lookup_requested if self.selection_backend.available or self.pointer_lookup.backend.available else None)
         app.aboutToQuit.connect(self.hotkeys.close)
         try:
             if self.hotkeys.backend.available:
@@ -149,7 +152,7 @@ class MainWindow(QMainWindow):
         if self.hotkeys.current:
             descriptions.append('唤起/隐藏：' + self.hotkeys.current[1])
         if self.hotkeys.selection_current:
-            descriptions.append('选词翻译：' + self.hotkeys.selection_current[1])
+            descriptions.append(('指针取词：' if self.desktop_settings.lookup_mode == 'pointer' else '选区翻译：') + self.hotkeys.selection_current[1])
         if descriptions:
             self.statusBar().showMessage(' · '.join(descriptions) + ' · 关闭窗口退出。')
         elif not self.hotkeys.backend.available:
@@ -182,6 +185,12 @@ class MainWindow(QMainWindow):
             self.hotkeys.backend.api.foreground(int(self.winId()))
         self.tabs.setCurrentIndex(0)
         self.input.setFocus()
+
+    def lookup_requested(self):
+        if self.desktop_settings.lookup_mode == "pointer":
+            self.pointer_lookup.trigger()
+        else:
+            self.translate_selection()
 
     def translate_selection(self):
         if self._closing:
@@ -632,6 +641,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self._closing = True
+        self.pointer_lookup.close()
         self.hotkeys.close()
         self.cancel_request()
         self.credentials.clear_session()

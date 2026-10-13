@@ -39,10 +39,14 @@ class DesktopSettings:
     toggle_hotkey: str = 'Ctrl+Alt+W'
     selection_enabled: bool = True
     selection_hotkey: str = 'Ctrl+Alt+T'
+    lookup_mode: str = 'pointer'
+    pointer_ocr: bool = True
 
     def validate(self):
         if self.theme not in ('system', 'light', 'dark') or type(self.hotkey_enabled) is not bool:
             raise DesktopError('外观或快捷键设置无效。')
+        if self.lookup_mode not in ('pointer', 'selection') or type(self.pointer_ocr) is not bool:
+            raise DesktopError('取词方式或 OCR 设置无效。')
         toggle = parse_hotkey(self.toggle_hotkey)[0]
         selection = parse_hotkey(self.selection_hotkey)[0]
         if type(self.selection_enabled) is not bool:

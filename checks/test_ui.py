@@ -34,7 +34,8 @@ class UIAcceptance(unittest.TestCase):
         self.library = Library(self.path / "library.sqlite3")
         self.credentials = Credentials()
         from wordloom.platforms.hotkeys import UnsupportedHotkeys
-        with patch("wordloom.ui.create_hotkeys", return_value=UnsupportedHotkeys()):
+        from wordloom.platforms.pointer import UnsupportedPointer
+        with patch("wordloom.ui.create_hotkeys", return_value=UnsupportedHotkeys()), patch("wordloom.ui_lookup.create_pointer", return_value=UnsupportedPointer()):
             self.window = MainWindow(self.store, self.settings, self.library, self.credentials)
         self.window.show()
         self.app.processEvents()

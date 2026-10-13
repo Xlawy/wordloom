@@ -1,5 +1,21 @@
 # 验证记录（2026-10-13 更新）
 
+> 当前状态：用户已确认 Windows 主题与唤起/隐藏快捷键通过；随后反馈选区读取兼容性不足。M2.2 现改为鼠标指向后按快捷键，UIA 指针读取 → 本机 OCR 回退 → 浮窗释义/收藏。Windows 新增原生能力待验收，macOS 尚未实现。详见 [当前实现、边界和验收](M2_POINTER_LOOKUP.md)。下文此前阶段记录中的“待验收/下一步”保留历史含义，以本条和最新验证记录为准。
+
+## 最新：指针取词与浮窗修正
+
+用户选择“鼠标指向后按快捷键取词”。默认 Ctrl+Alt+T 已改为该模式；旧选区模式可选。Windows UIA 指针接口、本机局部 OCR 与浮窗实现见 [M2_POINTER_LOOKUP.md](M2_POINTER_LOOKUP.md)。
+
+本轮 `.venv/bin/python scripts/validate.py --output validation/pointer` 实际结果：
+
+- 核心运行 63 项通过；真实 HTTP 测试类在 setUpClass 因 `Operation not permitted` 跳过，不计作通过。
+- 界面共 17 项：16 项通过、1 项真实 HTTP/UI 联合用例因 socket 权限跳过。
+- offscreen 启动通过；compileall、git diff --check 通过。浮窗明暗主题截图已在 `validation/pointer/popup-dark.png`、`popup-light.png` 检查，属于 WSL 离屏视觉检查。
+- 新增测试涵盖真实子进程管道复用、超时终止、取消、请求 ID 拒绝旧结果；模拟 UIA/OCR 回退及错误；偏好迁移和持久化；实际 Qt 浮窗→内存 HTTP 模型响应→保存上下文/释义→复习；修改失效、Esc 取消、手动粘贴入口和负坐标布局。
+- 真实 Windows UIA/OCR 返回值在共用测试中由替身提供，不代表 Windows 原生识别、焦点或多屏缩放通过。再次尝试 Windows PowerShell 互操作，实际仍报 `UtilBindVsockAnyPort:317: socket failed 1`，退出 1。
+
+验证器整体返回 2（环境受限），未把跳过项目记为通过。日志保存在本机 `validation/pointer/`（Git 忽略）；Windows 原生、真实模型和 macOS 新增系统能力未验证。无需新增 Python 包。
+
 ## 最新：选词翻译
 
 用户已反馈 M2.1 原生验收通过。本轮 M2.2 代码与共用测试完成：55 项核心、12 项界面测试和 offscreen 启动通过，真实 HTTP 组及 1 项 HTTP/UI 联合检查环境跳过。Windows UI Automation 未在 agent 实测；[详细实现、测试边界与验收表](M2_SELECTION.md)。以下为此前阶段记录。

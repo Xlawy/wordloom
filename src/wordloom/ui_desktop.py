@@ -24,14 +24,23 @@ class DesktopDialog(QDialog):
         form.addRow('外观', self.theme)
         form.addRow(self.enabled)
         form.addRow('唤起 / 隐藏', self.shortcut)
-        self.selection_enabled = QCheckBox('启用选词翻译快捷键')
-        self.selection_enabled.setChecked(owner.desktop_settings.selection_enabled and supported and owner.selection_backend.available)
-        self.selection_enabled.setEnabled(supported and owner.selection_backend.available)
+        self.selection_enabled = QCheckBox('启用取词快捷键')
+        self.selection_enabled.setChecked(owner.desktop_settings.selection_enabled and supported and (owner.selection_backend.available or owner.pointer_lookup.backend.available))
+        self.selection_enabled.setEnabled(supported and (owner.selection_backend.available or owner.pointer_lookup.backend.available))
         self.selection_shortcut = QLineEdit(owner.desktop_settings.selection_hotkey)
-        self.selection_shortcut.setEnabled(supported and owner.selection_backend.available)
+        self.selection_shortcut.setEnabled(supported and (owner.selection_backend.available or owner.pointer_lookup.backend.available))
         form.addRow(self.selection_enabled)
-        form.addRow('选中文字后翻译', self.selection_shortcut)
-        selection_note = QLabel('选词使用 Windows UI Automation，不改变剪贴板。触发后把所选文字发送到当前翻译模型；不支持的控件请手动复制粘贴。')
+        form.addRow('取词快捷键', self.selection_shortcut)
+        self.lookup_mode = QComboBox()
+        self.lookup_mode.addItem('鼠标指向单词后按快捷键（无需选中，浮窗显示）', 'pointer')
+        self.lookup_mode.addItem('读取已选择的文字（旧方式）', 'selection')
+        self.lookup_mode.setCurrentIndex(self.lookup_mode.findData(owner.desktop_settings.lookup_mode))
+        self.pointer_ocr = QCheckBox('文字接口失败时使用 Windows 本机 OCR（不上传截图）')
+        self.pointer_ocr.setChecked(owner.desktop_settings.pointer_ocr)
+        self.pointer_ocr.setEnabled(owner.pointer_lookup.backend.available)
+        form.addRow('取词方式', self.lookup_mode)
+        form.addRow(self.pointer_ocr)
+        selection_note = QLabel('指针方式读取鼠标下单词与上下文，在旁边浮窗释义，可修正并保存。按快捷键才取词；不需要先选中，不会改动剪贴板。识别后的文字发送到当前翻译模型。')
         selection_note.setWordWrap(True)
         form.addRow(selection_note)
         hint = QLabel('前台主窗口按快捷键隐藏；隐藏、最小化或在后台时唤起。\n支持 Ctrl/Alt/Shift/Win + 字母、数字或功能键；关闭窗口仍退出程序。'
@@ -48,7 +57,8 @@ class DesktopDialog(QDialog):
 
     def save(self):
         settings = DesktopSettings(self.theme.currentData(), self.enabled.isChecked(), self.shortcut.text(),
-                                   self.selection_enabled.isChecked(), self.selection_shortcut.text())
+                                   self.selection_enabled.isChecked(), self.selection_shortcut.text(),
+                                   self.lookup_mode.currentData(), self.pointer_ocr.isChecked())
         try:
             self.owner.hotkeys.configure(settings, lambda: self.owner.desktop_store.save(settings))
         except (DesktopError, OSError) as exc:

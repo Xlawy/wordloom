@@ -99,3 +99,16 @@ class DesktopTests(unittest.TestCase):
             self.assertTrue(settings.hotkey_enabled)
             self.assertFalse(settings.selection_enabled)
             self.assertEqual(settings.toggle_hotkey, 'Ctrl+Alt+T')
+            self.assertEqual(settings.lookup_mode, 'pointer')
+            self.assertTrue(settings.pointer_ocr)
+
+    def test_pointer_preferences_roundtrip_and_validation(self):
+        with TemporaryDirectory() as directory:
+            store = DesktopStore(Path(directory))
+            settings = DesktopSettings(lookup_mode='selection', pointer_ocr=False)
+            store.save(settings)
+            self.assertEqual(store.load(), settings)
+            for invalid in (DesktopSettings(lookup_mode='hover'), DesktopSettings(pointer_ocr='true')):
+                with self.assertRaises(DesktopError):
+                    store.save(invalid)
+            self.assertEqual(store.load(), settings)

@@ -1,5 +1,7 @@
 # Windows/macOS 构建与原生验收
 
+> 当前状态：用户已确认 Windows 主题与唤起/隐藏快捷键通过；随后反馈选区读取兼容性不足。M2.2 现改为鼠标指向后按快捷键，UIA 指针读取 → 本机 OCR 回退 → 浮窗释义/收藏。Windows 新增原生能力待验收，macOS 尚未实现。详见 [当前实现、边界和验收](M2_POINTER_LOOKUP.md)。下文此前阶段记录中的“待验收/下一步”保留历史含义，以本条和最新验证记录为准。
+
 用户已报告 Windows Python 原生启动和原有功能正常；本轮主题修复及全局快捷键新增项见 [M2.1 验收表](M2_WINDOWS_HOTKEY.md)。当前没有已构建或已验证的 Windows EXE / macOS app / 安装包。QtCore 的 WSL 测试不等价于双平台通过。以下各项均须在对应系统实际勾选，记录系统版本、CPU 架构、Python/Qt 版本、提交版本和日志。
 
 Windows 先按 [原生运行与核心验收](WINDOWS_ACCEPTANCE.md) 完成 Python 源码运行；尚未通过前不进入系统功能开发。macOS 保留共用实现和 Keychain 适配，尚无原生执行证据。

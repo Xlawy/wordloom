@@ -2,7 +2,7 @@
 
 独立编写的 Python / PySide6 桌面词库：**自定义模型翻译 → 收藏原文与上下文 → 离线复习**。使用自己的名称、界面和代码；不加载分析样本，不读取其他软件的凭据，不连接原软件服务。
 
-用户已确认 Windows 主题和唤起/隐藏快捷键通过。本轮新增选词翻译：在其他程序选中文字后按 `Ctrl+Alt+T`，通过 UI Automation 读取选区并调用当前翻译模型；失败可手动复制粘贴。默认唤起/隐藏仍为 `Ctrl+Alt+W`。选词代码和共用闭环测试已完成，Windows 具体应用兼容性待原生验收；详见 [M2.2 使用与验收](docs/M2_SELECTION.md)。截图 OCR 和托盘随后逐项实施。
+用户已确认 Windows 主题和唤起/隐藏快捷键通过。针对选区接口兼容性反馈，本轮改为 **鼠标指向单词后按 `Ctrl+Alt+T` → 读取单词与上下文 → 原地浮窗释义 → 保存/复习**，无需先选择文字；文本接口失败后可用 Windows 本机 OCR 回退。旧选区模式仍可在设置中选择。默认唤起/隐藏为 `Ctrl+Alt+W`，已有自定义快捷键保留。共用闭环测试通过，Windows 指针接口/OCR/浮窗焦点仍待原生验收，见 [使用与诊断](docs/M2_POINTER_LOOKUP.md)。区域截图和托盘随后逐项实施。
 
 ## 启动（已安装依赖的当前 WSL 环境）
 
@@ -64,15 +64,15 @@ py -3.13 -m venv .venv-win
 
 - 支持 OpenAI-compatible Chat Completions 的 SSE 和 JSON 响应；不自动把任意服务地址当成兼容端点。后续可增加 `providers.Adapter` 实现。
 - 默认不自动重试、不跟随重定向，不忽略 TLS 验证。仅本机回环地址允许 HTTP。当前 HTTP 实现直连服务，不自动使用系统/环境代理；依赖代理的服务需要后续代理适配。
-- 翻译与 OCR 配置独立；OCR 只有显式图像能力开启后才构造图片请求，目前可做图像连接测试。用户选图、区域截图和取词联动属于 M2。
-- Windows 唤起/隐藏快捷键已获用户原生验收反馈；UI Automation 选词翻译代码完成、原生待验收。托盘、发音、账户同步、自动更新未实现。macOS 全局快捷键和选词明确不可用。详见 [功能对照表](docs/FEATURE_MATRIX.md)。
+- 翻译与 OCR 配置独立；OCR 只有显式图像能力开启后才构造图片请求，目前可做图像连接测试。指针局部 OCR 使用 Windows 本机引擎；用户框选区域与云端 OCR 联动尚未实现。
+- Windows 唤起/隐藏快捷键已获用户原生验收反馈；指针取词/UIA 与本机 OCR 回退代码完成、原生待验收。托盘、发音、账户同步、自动更新未实现。macOS 全局快捷键和选词明确不可用。详见 [功能对照表](docs/FEATURE_MATRIX.md)。
 - 改变 API 地址会改变凭据标识，旧 Key 不会发送到新地址。旧地址的凭据可能仍留在系统库；可恢复旧地址后勾选清除，或在系统凭据管理器中删除 `org.wordloom.desktop.api` 对应项。删除配置清理其当前地址的凭据。
 
 ## 数据
 
 默认位置：Windows `%LOCALAPPDATA%\WordLoom`；macOS `~/Library/Application Support/WordLoom`；Linux `~/.local/share/wordloom`。可用 `--data-dir` 或 `WORDLOOM_DATA_DIR` 指定。
 
-`settings.json` 仅保存非秘密配置；`library.sqlite3` 保存词条、当前排期、评分历史。只有用户点击请求时才发送相应输入到用户配置的模型服务。当前没有同步或后台请求；JSON 备份保留当前复习状态，不含逐次评分历史。备份整个数据库时先退出应用。
+`settings.json` 仅保存非秘密配置；`library.sqlite3` 保存词条、当前排期、评分历史。只有用户点击请求或触发取词快捷键时才发送相应输入到用户配置的模型服务。当前没有同步或后台请求；JSON 备份保留当前复习状态，不含逐次评分历史。备份整个数据库时先退出应用。
 
 ## 测试与模拟服务
 
@@ -98,4 +98,4 @@ py -3.13 -m venv .venv-win
 - [实际验证记录](docs/VALIDATION.md)
 - [Windows/macOS 构建与原生验收](docs/NATIVE_CHECKLIST.md)
 
-下一步在 Windows 验收 [M2.2 选词翻译](docs/M2_SELECTION.md)，通过后实现区域截图、OCR 修正和翻译联动。
+下一步在 Windows 验收 [M2.2 指针取词](docs/M2_POINTER_LOOKUP.md)，通过后实现区域截图、OCR 修正和翻译联动。
